@@ -12,6 +12,9 @@ This repository provides a local Docker environment for shared development servi
 | MinIO | S3-compatible storage and console | `http://localhost:9000`, `http://localhost:9001` | `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` from `.env` |
 | Mailpit | Local email capture and viewer | SMTP `localhost:1025`, `http://localhost:8025` | None |
 | Portainer | Container administration UI | `http://localhost:9002`, `https://localhost:9443` | Create a local administrator on first access |
+| MySQL (optional) | Relational database | `mysql://localhost:3306` | `MYSQL_USERNAME` and `MYSQL_PASSWORD` from `.env` |
+
+To prepare a new WSL installation with MySQL in one run, use `bash ./setup-local.sh --with-mysql`. Default setup does not start MySQL. If setup already ran, use `docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d` to include it. Use the same pair of Compose files for `ps`, `pull`, `down`, and `down --volumes` while MySQL is in use. Its data is stored in a persistent `mysql_data` volume; `down --volumes` permanently deletes it. For a host-run application, use `localhost` and `MYSQL_PORT`; for a container on the shared network, use `mysql:3306`. Each application owns its own schema and database migrations.
 
 ## Service Use
 

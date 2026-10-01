@@ -33,6 +33,7 @@ The root Compose configuration runs only shared backing services. Application co
 - Safe Git update workflow for repositories with configured upstream branches
 - Shared Docker network for containerized applications
 - Service health checks for RabbitMQ, MongoDB, and MinIO
+- Optional MySQL for applications requiring a relational database
 
 ## Requirements
 
@@ -44,7 +45,7 @@ The same `setup-local.sh` workflow runs in WSL and Linux. On Debian or Ubuntu, i
 
 On other Linux distributions, the script runs normally when Git, Docker Engine, Docker Compose v2, `od`, and `tr` are already installed. If a required tool is missing, it exits with a clear message because automatic provisioning is intentionally limited to Debian and Ubuntu.
 
-On Windows, install and run Docker Engine inside the WSL distribution that contains this repository. This workflow does not use a Windows-hosted container runtime. No application runtime, package manager, or framework is installed by this repository.
+On Windows, install a Debian or Ubuntu WSL distribution first and run setup inside it. The script installs Docker Engine in that distribution if needed; it does not use a Windows-hosted container runtime. No application runtime, package manager, or framework is installed by this repository.
 
 ## Repository Structure
 
@@ -57,6 +58,7 @@ local-infrastructure/
 ├── README.en.md
 ├── README.md
 ├── docker-compose.yml
+├── docker-compose.mysql.yml
 ├── docs/
 │   ├── application-repositories.md
 │   ├── direct-upload-architecture.md
@@ -79,6 +81,14 @@ bash ./setup-local.sh
 
 The setup script installs missing host prerequisites on supported distributions, validates the Docker daemon, creates an ignored `.env` file with generated local credentials, and starts the shared services.
 
+If MySQL is also needed on the first run in WSL, use **instead of the command above**:
+
+```bash
+bash ./setup-local.sh --with-mysql
+```
+
+This validates the Compose configuration and starts the default services plus MySQL in a single run. It does not install application dependencies.
+
 If setup adds the current user to the `docker` group, open a new WSL or Linux session before running Docker commands without `sudo`. Until then, use the Docker command printed by setup.
 
 To clone application repositories during setup, pass each repository with a local directory name:
@@ -94,7 +104,7 @@ Each repository is cloned to `repositorios/<name>`. The script does not install 
 
 ## Environment Configuration
 
-`.env.example` contains non-sensitive configuration such as local ports, service usernames, and the shared Docker network name. `setup-local.sh` copies it to `.env` and appends generated passwords.
+`.env.example` contains non-sensitive configuration such as local ports, service usernames, and the shared Docker network name. `setup-local.sh` copies it to `.env` and appends generated passwords. If `.env` already exists, setup preserves its values and adds only missing settings for optional MySQL.
 
 Do not commit `.env`. To regenerate local credentials, reset the local service data, delete `.env`, then run setup again:
 
@@ -104,7 +114,7 @@ rm .env
 bash ./setup-local.sh
 ```
 
-This removes all local infrastructure data because stateful services apply their initial credentials only when their data volumes are created.
+If you have ever started optional MySQL, replace the first command with `docker compose -f docker-compose.yml -f docker-compose.mysql.yml down --volumes` to remove its volume too. This permanently deletes local data: stateful services apply their initial credentials only when their data volumes are created.
 
 The generated file contains values in this form:
 
@@ -113,13 +123,15 @@ RABBITMQ_PASSWORD=<generated-local-password>
 MONGODB_PASSWORD=<generated-local-password>
 MONGO_EXPRESS_PASSWORD=<generated-local-password>
 MINIO_ROOT_PASSWORD=<generated-local-password>
+MYSQL_PASSWORD=<generated-local-password>
+MYSQL_ROOT_PASSWORD=<generated-local-password>
 ```
 
 MinIO starts without buckets or lifecycle rules. Applications create and configure the buckets they require.
 
 ## First Access and Credentials
 
-`setup-local.sh` creates `.env` only when it does not already exist. It copies the configured local usernames and generates the required passwords. No manual account creation is required for RabbitMQ, MongoDB, Mongo Express, or MinIO on a clean setup.
+`setup-local.sh` creates `.env` only when it does not already exist. It copies the configured local usernames and generates the required passwords. For an existing `.env`, it adds only missing optional MySQL variables. No manual account creation is required for RabbitMQ, MongoDB, Mongo Express, MinIO, or optional MySQL on a clean setup.
 
 Open `.env` only in a trusted local editor when a service or application requires its credentials. Do not print its contents in a terminal, share it, or commit it.
 
@@ -136,6 +148,7 @@ First-run flow:
 | MongoDB | Configure an application or client with authenticated MongoDB access. | `MONGODB_USERNAME` and `MONGODB_PASSWORD` in `.env` |
 | Mongo Express | Sign in through HTTP basic authentication. | `MONGO_EXPRESS_USERNAME` and `MONGO_EXPRESS_PASSWORD` in `.env` |
 | MinIO | Sign in to the console or configure an S3-compatible client. | `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` in `.env` |
+| MySQL (optional) | Configure a SQL client or application. | `MYSQL_USERNAME`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`, and `MYSQL_PORT` in `.env` |
 | Mailpit | Open the web UI or send mail through SMTP. | No authentication is configured. |
 | Portainer | Open the HTTPS UI after the first startup and create its local administrator account. | Stored in the persistent `portainer_data` volume, not in `.env` |
 
@@ -144,6 +157,7 @@ Use placeholders, never generated values, when documenting application configura
 ```text
 amqp://<RABBITMQ_USERNAME>:<RABBITMQ_PASSWORD>@localhost:<RABBITMQ_AMQP_PORT>
 mongodb://<MONGODB_USERNAME>:<MONGODB_PASSWORD>@localhost:<MONGODB_PORT>/?authSource=admin
+mysql://<MYSQL_USERNAME>:<MYSQL_PASSWORD>@localhost:<MYSQL_PORT>/<MYSQL_DATABASE>
 ```
 
 Application repositories own their environment files. Configure shared-service values in each application's ignored local environment file as needed; this repository does not copy infrastructure credentials into applications automatically.
@@ -163,6 +177,20 @@ docker compose ps
 docker compose logs -f
 ```
 
+### Optional MySQL
+
+To include MySQL when setting up a new workstation, run `bash ./setup-local.sh --with-mysql`. If setup already ran without this option, start the generic extension later:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps
+```
+
+MySQL has its own volume, creates the local database configured in `.env`, and publishes its port only on `127.0.0.1`. Applications running in WSL connect through `localhost` and `MYSQL_PORT`; containers attached to `LOCAL_INFRA_NETWORK` use `mysql:3306`. Copy the needed credentials into each application's private environment file; they are not transferred automatically. Each application manages its own migrations and, if sharing the server with others, its own database and user.
+
+While using MySQL, include **both** `-f` files when inspecting, refreshing, or stopping the stack. The root Compose file alone still manages only the six default services. Do not put application containers or framework dependencies here.
+
 ## Stopping the Environment
 
 Stop containers while retaining data volumes:
@@ -170,6 +198,8 @@ Stop containers while retaining data volumes:
 ```bash
 docker compose down
 ```
+
+If you are using optional MySQL, run `docker compose -f docker-compose.yml -f docker-compose.mysql.yml down` instead.
 
 To remove all local service data permanently:
 
@@ -214,6 +244,7 @@ bash ./update-local.sh --force
 | MinIO | S3-compatible object storage and console | `http://localhost:9000`, `http://localhost:9001` | `.env` MinIO credentials |
 | Mailpit | Development SMTP server and email viewer | SMTP `localhost:1025`, `http://localhost:8025` | None |
 | Portainer | Docker environment administration | `http://localhost:9002`, `https://localhost:9443` | Create local administrator on first access |
+| MySQL (optional) | Shared relational database | `mysql://localhost:3306` | `.env` MySQL credentials |
 
 All ports bind to `127.0.0.1` and can be changed in `.env` before startup.
 
@@ -227,21 +258,25 @@ flowchart TD
     APPS --> CONTAINERS[Application containers]
     INFRA --> MQ[RabbitMQ]
     INFRA --> DB[(MongoDB)]
+    INFRA --> SQL[(Optional MySQL)]
     INFRA --> STORAGE[MinIO]
     INFRA --> MAIL[Mailpit]
     INFRA --> TOOLS[Mongo Express and Portainer]
     HOST --> MQ
     HOST --> DB
+    HOST --> SQL
     HOST --> STORAGE
     HOST --> MAIL
     CONTAINERS --> NETWORK[local-infrastructure-network]
     NETWORK --> MQ
     NETWORK --> DB
+    NETWORK --> SQL
     NETWORK --> STORAGE
     NETWORK --> MAIL
 ```
 
 Host-run applications connect through `localhost`. Containerized applications can join the shared Docker network and use Compose service names such as `rabbitmq`, `mongo`, `minio`, and `mailpit`.
+When the MySQL extension is started, the service name `mysql` is also available on this network.
 
 ## Working with Application Repositories
 
@@ -263,6 +298,7 @@ Attach the application service to that network. It can then resolve the shared s
 | Command | Description |
 | --- | --- |
 | `bash ./setup-local.sh` | Generate local configuration and start shared services. |
+| `bash ./setup-local.sh --with-mysql` | Also validate and start optional MySQL on the first run. |
 | `bash ./setup-local.sh --repository name=<git-url>` | Clone a repository into `repositorios/name` and start shared services. |
 | `bash ./update-local.sh` | Safely update eligible repositories in `repositorios/`. |
 | `bash ./update-local.sh --force` | Reset eligible repositories to their upstream branch, discarding local work. |
@@ -272,6 +308,7 @@ Attach the application service to that network. It can then resolve the shared s
 | `docker compose ps` | Show service status and health. |
 | `docker compose logs -f` | Follow service logs. |
 | `docker compose pull` | Download updated configured service images. |
+| `docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d` | Start the stack with optional MySQL. |
 
 ## Troubleshooting
 
@@ -282,8 +319,9 @@ Attach the application service to that network. It can then resolve the shared s
 | A service cannot bind its port | Change the corresponding port variable in `.env`, then run `docker compose up -d`. |
 | Compose reports a missing environment variable | Run `bash ./setup-local.sh` to create `.env`, or restore the required local value without committing it. |
 | Mongo Express waits for MongoDB | Run `docker compose ps` and wait until MongoDB is healthy. Inspect `docker compose logs mongo` if it does not become healthy. |
+| MySQL refuses connections | Start with both Compose files, check health with `docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps`, and verify the `.env` port is free. Do not change credentials without resetting the MySQL volume too. |
 | An application container cannot resolve a shared service | Attach the application Compose service to `local-infrastructure-network`. |
-| Local data needs a clean reset | Run `docker compose down --volumes`, then `bash ./setup-local.sh`. This permanently deletes local infrastructure data. |
+| Local data needs a clean reset | Run `docker compose down --volumes` (with both `-f` files if you used MySQL), then `bash ./setup-local.sh`. This permanently deletes local infrastructure data. |
 | Repository update is skipped | Resolve local changes, configure an upstream branch, or use `--force` only after confirming local work can be discarded. |
 
 ## Security

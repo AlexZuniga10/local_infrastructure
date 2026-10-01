@@ -9,6 +9,8 @@ Applications may run in either of these modes:
 - **Host-run:** Start the application with its native development command. Connect to local services through `localhost` and their published ports.
 - **Container-run:** Start the application with Docker Compose. Connect to local services through their Docker service names and internal ports.
 
+The optional MySQL extension is a generic shared database, not an application runtime. Start it from the infrastructure repository when needed; keep application runtimes, dependency installation, web servers, and framework commands with the application. For multiple applications using MySQL, create separate databases and users rather than sharing one application's schema.
+
 Choose one mode per application instance to avoid port conflicts and duplicate consumers.
 
 ## Shared Docker Network

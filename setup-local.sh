@@ -8,6 +8,8 @@ ENV_EXAMPLE_FILE="${ROOT_DIR}/.env.example"
 
 declare -a REPOSITORY_SPECS=()
 declare -a DOCKER_COMMAND=(docker)
+declare -a COMPOSE_FILES=(-f "${ROOT_DIR}/docker-compose.yml")
+START_MYSQL=0
 
 if [ -t 1 ]; then
   BOLD=$'\033[1m'
@@ -49,9 +51,10 @@ die() {
 usage() {
   cat <<'EOF'
 Usage:
-  bash ./setup-local.sh [--repository <name>=<git-url>]...
+  bash ./setup-local.sh [--with-mysql] [--repository <name>=<git-url>]...
 
 Options:
+  --with-mysql      Start the optional shared MySQL service.
   -r, --repository  Clone a repository into repositorios/<name>.
   -h, --help        Show this help message.
 
@@ -59,6 +62,7 @@ On Debian or Ubuntu, missing host prerequisites are installed automatically.
 
 Examples:
   bash ./setup-local.sh
+  bash ./setup-local.sh --with-mysql
   bash ./setup-local.sh --repository backend=git@github.com:example/backend.git
 EOF
 }
@@ -233,6 +237,33 @@ create_env_file() {
   log_success "Created .env with generated local credentials."
 }
 
+ensure_mysql_config() {
+  local setting
+  local default
+  local changed=0
+
+  chmod 600 "${ENV_FILE}" 2>/dev/null || true
+
+  for setting in MYSQL_PORT MYSQL_DATABASE MYSQL_USERNAME; do
+    if ! grep -q "^${setting}=" "${ENV_FILE}"; then
+      default="$(grep -m1 "^${setting}=" "${ENV_EXAMPLE_FILE}")" || die "${setting} is missing from .env.example."
+      printf '%s\n' "${default}" >> "${ENV_FILE}"
+      changed=1
+    fi
+  done
+
+  for setting in MYSQL_PASSWORD MYSQL_ROOT_PASSWORD; do
+    if ! grep -q "^${setting}=" "${ENV_FILE}"; then
+      printf '%s=%s\n' "${setting}" "$(generate_secret)" >> "${ENV_FILE}"
+      changed=1
+    fi
+  done
+
+  if [ "${changed}" -eq 1 ]; then
+    log_success "Optional MySQL settings are ready in .env."
+  fi
+}
+
 clone_repository() {
   local specification="$1"
   local repository_name="${specification%%=*}"
@@ -266,6 +297,10 @@ clone_repository() {
 parse_arguments() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --with-mysql)
+        START_MYSQL=1
+        shift
+        ;;
       -r|--repository)
         [ "$#" -ge 2 ] || die "${1} requires <name>=<git-url>."
         REPOSITORY_SPECS+=("$2")
@@ -287,13 +322,25 @@ ensure_host_requirements
 
 mkdir -p "${REPOSITORIES_DIR}"
 create_env_file
+ensure_mysql_config
 
 for repository_specification in "${REPOSITORY_SPECS[@]}"; do
   clone_repository "${repository_specification}"
 done
 
+if [ "${START_MYSQL}" -eq 1 ]; then
+  COMPOSE_FILES+=(-f "${ROOT_DIR}/docker-compose.mysql.yml")
+fi
+
+log_step "Validating local infrastructure configuration"
+(cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" config --quiet)
+
 log_step "Starting local infrastructure"
-(cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" up -d)
+(cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" up -d)
 
 log_success "Local infrastructure is running."
-log_info "Run '${DOCKER_COMMAND[*]} compose ps' to inspect service status."
+if [ "${START_MYSQL}" -eq 1 ]; then
+  log_info "Run '${DOCKER_COMMAND[*]} compose -f docker-compose.yml -f docker-compose.mysql.yml ps' to inspect service status."
+else
+  log_info "Run '${DOCKER_COMMAND[*]} compose ps' to inspect service status."
+fi
