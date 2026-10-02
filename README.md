@@ -132,6 +132,7 @@ REDIS_PASSWORD=<generated-local-password>
 ```
 
 MinIO se inicia sin buckets ni reglas de ciclo de vida. Las aplicaciones crean y configuran los buckets que requieren.
+Su imagen se descarga del registro público de Chainguard porque `minio/minio` ya no está disponible en Docker Hub. El control de salud consulta el endpoint HTTP con Bash; la imagen mínima no incluye `curl`.
 
 ## Primer Acceso y Credenciales
 

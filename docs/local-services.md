@@ -16,6 +16,8 @@ This repository provides a local Docker environment for shared development servi
 | PostgreSQL (optional) | Relational database | `postgresql://localhost:5432` | `POSTGRES_USERNAME` and `POSTGRES_PASSWORD` from `.env` |
 | Redis (optional) | Cache and messaging | `redis://localhost:6379` | `REDIS_PASSWORD` from `.env` |
 
+MinIO uses the public `cgr.dev/chainguard/minio:latest` image. Its health check uses the image's Bash shell to query the live HTTP endpoint, without requiring `curl` inside the container. The existing `minio_data` volume is preserved when the container is recreated; do not run `down --volumes` just to refresh its image.
+
 To prepare a new WSL installation with optional services in one run, select any combination of `--with-mysql`, `--with-postgres`, and `--with-redis` on `bash ./setup-local.sh`. Default setup starts none of them. After setup, add the corresponding `docker-compose.mysql.yml`, `docker-compose.postgres.yml`, or `docker-compose.redis.yml` files with `-f` to start them. Use the same set of Compose files for `ps`, `pull`, `down`, and `down --volumes`; the latter permanently deletes their separate volumes. Host-run applications use `localhost` and the configured ports; containers on the shared network use `mysql:3306`, `postgres:5432`, or `redis:6379`. Redis requires a password; each application owns its own SQL schema and database migrations.
 
 ## Service Use
