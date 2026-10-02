@@ -13,8 +13,10 @@ This repository provides a local Docker environment for shared development servi
 | Mailpit | Local email capture and viewer | SMTP `localhost:1025`, `http://localhost:8025` | None |
 | Portainer | Container administration UI | `http://localhost:9002`, `https://localhost:9443` | Create a local administrator on first access |
 | MySQL (optional) | Relational database | `mysql://localhost:3306` | `MYSQL_USERNAME` and `MYSQL_PASSWORD` from `.env` |
+| PostgreSQL (optional) | Relational database | `postgresql://localhost:5432` | `POSTGRES_USERNAME` and `POSTGRES_PASSWORD` from `.env` |
+| Redis (optional) | Cache and messaging | `redis://localhost:6379` | `REDIS_PASSWORD` from `.env` |
 
-To prepare a new WSL installation with MySQL in one run, use `bash ./setup-local.sh --with-mysql`. Default setup does not start MySQL. If setup already ran, use `docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d` to include it. Use the same pair of Compose files for `ps`, `pull`, `down`, and `down --volumes` while MySQL is in use. Its data is stored in a persistent `mysql_data` volume; `down --volumes` permanently deletes it. For a host-run application, use `localhost` and `MYSQL_PORT`; for a container on the shared network, use `mysql:3306`. Each application owns its own schema and database migrations.
+To prepare a new WSL installation with optional services in one run, select any combination of `--with-mysql`, `--with-postgres`, and `--with-redis` on `bash ./setup-local.sh`. Default setup starts none of them. After setup, add the corresponding `docker-compose.mysql.yml`, `docker-compose.postgres.yml`, or `docker-compose.redis.yml` files with `-f` to start them. Use the same set of Compose files for `ps`, `pull`, `down`, and `down --volumes`; the latter permanently deletes their separate volumes. Host-run applications use `localhost` and the configured ports; containers on the shared network use `mysql:3306`, `postgres:5432`, or `redis:6379`. Redis requires a password; each application owns its own SQL schema and database migrations.
 
 ## Service Use
 

@@ -8,8 +8,10 @@ ENV_EXAMPLE_FILE="${ROOT_DIR}/.env.example"
 
 declare -a REPOSITORY_SPECS=()
 declare -a DOCKER_COMMAND=(docker)
-declare -a COMPOSE_FILES=(-f "${ROOT_DIR}/docker-compose.yml")
+declare -a COMPOSE_FILES=(-f docker-compose.yml)
 START_MYSQL=0
+START_POSTGRES=0
+START_REDIS=0
 
 if [ -t 1 ]; then
   BOLD=$'\033[1m'
@@ -51,10 +53,12 @@ die() {
 usage() {
   cat <<'EOF'
 Usage:
-  bash ./setup-local.sh [--with-mysql] [--repository <name>=<git-url>]...
+  bash ./setup-local.sh [--with-mysql] [--with-postgres] [--with-redis] [--repository <name>=<git-url>]...
 
 Options:
   --with-mysql      Start the optional shared MySQL service.
+  --with-postgres   Start the optional shared PostgreSQL service.
+  --with-redis      Start the optional shared Redis service.
   -r, --repository  Clone a repository into repositorios/<name>.
   -h, --help        Show this help message.
 
@@ -63,6 +67,7 @@ On Debian or Ubuntu, missing host prerequisites are installed automatically.
 Examples:
   bash ./setup-local.sh
   bash ./setup-local.sh --with-mysql
+  bash ./setup-local.sh --with-mysql --with-postgres --with-redis
   bash ./setup-local.sh --repository backend=git@github.com:example/backend.git
 EOF
 }
@@ -237,14 +242,14 @@ create_env_file() {
   log_success "Created .env with generated local credentials."
 }
 
-ensure_mysql_config() {
+ensure_optional_service_config() {
   local setting
   local default
   local changed=0
 
   chmod 600 "${ENV_FILE}" 2>/dev/null || true
 
-  for setting in MYSQL_PORT MYSQL_DATABASE MYSQL_USERNAME; do
+  for setting in MYSQL_PORT MYSQL_DATABASE MYSQL_USERNAME POSTGRES_PORT POSTGRES_DATABASE POSTGRES_USERNAME REDIS_PORT; do
     if ! grep -q "^${setting}=" "${ENV_FILE}"; then
       default="$(grep -m1 "^${setting}=" "${ENV_EXAMPLE_FILE}")" || die "${setting} is missing from .env.example."
       printf '%s\n' "${default}" >> "${ENV_FILE}"
@@ -252,7 +257,7 @@ ensure_mysql_config() {
     fi
   done
 
-  for setting in MYSQL_PASSWORD MYSQL_ROOT_PASSWORD; do
+  for setting in MYSQL_PASSWORD MYSQL_ROOT_PASSWORD POSTGRES_PASSWORD REDIS_PASSWORD; do
     if ! grep -q "^${setting}=" "${ENV_FILE}"; then
       printf '%s=%s\n' "${setting}" "$(generate_secret)" >> "${ENV_FILE}"
       changed=1
@@ -260,7 +265,7 @@ ensure_mysql_config() {
   done
 
   if [ "${changed}" -eq 1 ]; then
-    log_success "Optional MySQL settings are ready in .env."
+    log_success "Optional service settings are ready in .env."
   fi
 }
 
@@ -301,6 +306,14 @@ parse_arguments() {
         START_MYSQL=1
         shift
         ;;
+      --with-postgres)
+        START_POSTGRES=1
+        shift
+        ;;
+      --with-redis)
+        START_REDIS=1
+        shift
+        ;;
       -r|--repository)
         [ "$#" -ge 2 ] || die "${1} requires <name>=<git-url>."
         REPOSITORY_SPECS+=("$2")
@@ -322,14 +335,20 @@ ensure_host_requirements
 
 mkdir -p "${REPOSITORIES_DIR}"
 create_env_file
-ensure_mysql_config
+ensure_optional_service_config
 
 for repository_specification in "${REPOSITORY_SPECS[@]}"; do
   clone_repository "${repository_specification}"
 done
 
 if [ "${START_MYSQL}" -eq 1 ]; then
-  COMPOSE_FILES+=(-f "${ROOT_DIR}/docker-compose.mysql.yml")
+  COMPOSE_FILES+=(-f docker-compose.mysql.yml)
+fi
+if [ "${START_POSTGRES}" -eq 1 ]; then
+  COMPOSE_FILES+=(-f docker-compose.postgres.yml)
+fi
+if [ "${START_REDIS}" -eq 1 ]; then
+  COMPOSE_FILES+=(-f docker-compose.redis.yml)
 fi
 
 log_step "Validating local infrastructure configuration"
@@ -339,8 +358,4 @@ log_step "Starting local infrastructure"
 (cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" up -d)
 
 log_success "Local infrastructure is running."
-if [ "${START_MYSQL}" -eq 1 ]; then
-  log_info "Run '${DOCKER_COMMAND[*]} compose -f docker-compose.yml -f docker-compose.mysql.yml ps' to inspect service status."
-else
-  log_info "Run '${DOCKER_COMMAND[*]} compose ps' to inspect service status."
-fi
+log_info "Run '${DOCKER_COMMAND[*]} compose ${COMPOSE_FILES[*]} ps' to inspect service status."

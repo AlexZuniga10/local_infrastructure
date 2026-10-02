@@ -33,7 +33,7 @@ La configuración Compose raíz ejecuta únicamente servicios compartidos de res
 - Flujo seguro de actualización de Git para repositorios con ramas upstream configuradas
 - Red compartida de Docker para aplicaciones en contenedores
 - Comprobaciones de estado de servicio para RabbitMQ, MongoDB y MinIO
-- MySQL opcional para aplicaciones que requieran una base de datos relacional
+- MySQL, PostgreSQL y Redis opcionales para aplicaciones que necesiten SQL o caché
 
 ## Requisitos
 
@@ -59,6 +59,8 @@ local-infrastructure/
 ├── README.md
 ├── docker-compose.yml
 ├── docker-compose.mysql.yml
+├── docker-compose.postgres.yml
+├── docker-compose.redis.yml
 ├── docs/
 │   ├── application-repositories.md
 │   ├── direct-upload-architecture.md
@@ -81,13 +83,13 @@ bash ./setup-local.sh
 
 El script de configuración instala los requisitos previos del host que falten en las distribuciones compatibles, valida el daemon de Docker, crea un archivo `.env` ignorado con credenciales locales generadas e inicia los servicios compartidos.
 
-Si también necesita MySQL desde la primera ejecución en WSL, use **en lugar del comando anterior**:
+Para incluir servicios opcionales desde la primera ejecución en WSL, añada las opciones que necesite. Por ejemplo, para iniciar los tres:
 
 ```bash
-bash ./setup-local.sh --with-mysql
+bash ./setup-local.sh --with-mysql --with-postgres --with-redis
 ```
 
-Esto valida la configuración Compose y arranca los servicios predeterminados más MySQL en una sola ejecución. No instala dependencias de aplicaciones.
+Cada opción (`--with-mysql`, `--with-postgres`, `--with-redis`) es independiente. El script valida la configuración Compose e inicia los seis servicios predeterminados más los seleccionados; no instala dependencias de aplicaciones.
 
 Si la configuración añade al usuario actual al grupo `docker`, abra una nueva sesión de WSL o Linux antes de ejecutar comandos de Docker sin `sudo`. Hasta entonces, use el comando de Docker que imprima la configuración.
 
@@ -104,7 +106,7 @@ Cada repositorio se clona en `repositorios/<name>`. El script no instala depende
 
 ## Configuración del Entorno
 
-`.env.example` contiene configuración no sensible, como puertos locales, nombres de usuario de servicios y el nombre de la red Docker compartida. `setup-local.sh` lo copia a `.env` y añade contraseñas generadas. Si ya existe un `.env`, el script conserva sus valores y añade únicamente las variables que falten para MySQL opcional.
+`.env.example` contiene configuración no sensible, como puertos locales, nombres de usuario de servicios y el nombre de la red Docker compartida. `setup-local.sh` lo copia a `.env` y añade contraseñas generadas. Si ya existe un `.env`, el script conserva sus valores y añade únicamente las variables opcionales que falten.
 
 No versione `.env` en Git. Para regenerar las credenciales locales, restablezca los datos de los servicios locales, elimine `.env` y vuelva a ejecutar la configuración:
 
@@ -114,7 +116,7 @@ rm .env
 bash ./setup-local.sh
 ```
 
-Si alguna vez inició MySQL opcional, sustituya el primer comando por `docker compose -f docker-compose.yml -f docker-compose.mysql.yml down --volumes` para eliminar también su volumen. Esto elimina permanentemente los datos locales: los servicios con estado aplican sus credenciales iniciales únicamente cuando se crean sus volúmenes de datos.
+Si inició servicios opcionales, incluya sus archivos `-f` en el primer comando para eliminar también sus volúmenes. Esto elimina permanentemente los datos locales: los servicios con estado aplican sus credenciales iniciales únicamente cuando se crean sus volúmenes de datos.
 
 El archivo generado contiene valores de esta forma:
 
@@ -125,13 +127,15 @@ MONGO_EXPRESS_PASSWORD=<generated-local-password>
 MINIO_ROOT_PASSWORD=<generated-local-password>
 MYSQL_PASSWORD=<generated-local-password>
 MYSQL_ROOT_PASSWORD=<generated-local-password>
+POSTGRES_PASSWORD=<generated-local-password>
+REDIS_PASSWORD=<generated-local-password>
 ```
 
 MinIO se inicia sin buckets ni reglas de ciclo de vida. Las aplicaciones crean y configuran los buckets que requieren.
 
 ## Primer Acceso y Credenciales
 
-`setup-local.sh` crea `.env` únicamente cuando aún no existe. Copia los nombres de usuario locales configurados y genera las contraseñas necesarias. En un `.env` existente, solo añade las variables opcionales de MySQL que falten. No se requiere crear cuentas manualmente para RabbitMQ, MongoDB, Mongo Express, MinIO ni MySQL opcional en una configuración limpia.
+`setup-local.sh` crea `.env` únicamente cuando aún no existe. Copia los nombres de usuario locales configurados y genera las contraseñas necesarias. En un `.env` existente, solo añade las variables opcionales que falten. No se requiere crear cuentas manualmente para RabbitMQ, MongoDB, Mongo Express, MinIO, MySQL, PostgreSQL ni Redis en una configuración limpia.
 
 Abra `.env` únicamente en un editor local de confianza cuando un servicio o una aplicación requiera sus credenciales. No imprima su contenido en una terminal, no lo comparta ni lo confirme en Git.
 
@@ -149,6 +153,8 @@ Flujo de la primera ejecución:
 | Mongo Express | Inicie sesión mediante autenticación básica HTTP. | `MONGO_EXPRESS_USERNAME` y `MONGO_EXPRESS_PASSWORD` en `.env` |
 | MinIO | Inicie sesión en la consola o configure un cliente compatible con S3. | `MINIO_ROOT_USER` y `MINIO_ROOT_PASSWORD` en `.env` |
 | MySQL (opcional) | Configure un cliente SQL o una aplicación. | `MYSQL_USERNAME`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` y `MYSQL_PORT` en `.env` |
+| PostgreSQL (opcional) | Configure un cliente SQL o una aplicación. | `POSTGRES_USERNAME`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE` y `POSTGRES_PORT` en `.env` |
+| Redis (opcional) | Configure un cliente de caché o de mensajes. | `REDIS_PASSWORD` y `REDIS_PORT` en `.env` |
 | Mailpit | Abra la UI web o envíe correo mediante SMTP. | No hay autenticación configurada. |
 | Portainer | Abra la UI HTTPS después del primer inicio y cree su cuenta local de administrador. | Se almacena en el volumen persistente `portainer_data`, no en `.env` |
 
@@ -158,6 +164,8 @@ Use marcadores de posición, nunca valores generados, al documentar la configura
 amqp://<RABBITMQ_USERNAME>:<RABBITMQ_PASSWORD>@localhost:<RABBITMQ_AMQP_PORT>
 mongodb://<MONGODB_USERNAME>:<MONGODB_PASSWORD>@localhost:<MONGODB_PORT>/?authSource=admin
 mysql://<MYSQL_USERNAME>:<MYSQL_PASSWORD>@localhost:<MYSQL_PORT>/<MYSQL_DATABASE>
+postgresql://<POSTGRES_USERNAME>:<POSTGRES_PASSWORD>@localhost:<POSTGRES_PORT>/<POSTGRES_DATABASE>
+redis://:<REDIS_PASSWORD>@localhost:<REDIS_PORT>/0
 ```
 
 Los repositorios de aplicaciones son propietarios de sus archivos de entorno. Configure los valores de servicios compartidos en el archivo de entorno local ignorado de cada aplicación según sea necesario; este repositorio no copia automáticamente las credenciales de infraestructura en las aplicaciones.
@@ -177,19 +185,21 @@ docker compose ps
 docker compose logs -f
 ```
 
-### MySQL opcional
+### Servicios opcionales
 
-Para incluir MySQL al preparar una estación nueva, ejecute `bash ./setup-local.sh --with-mysql`. Si ya ejecutó la configuración sin esa opción, puede iniciar la extensión genérica posteriormente:
+Para incluir MySQL, PostgreSQL y Redis al preparar una estación nueva, ejecute `bash ./setup-local.sh --with-mysql --with-postgres --with-redis`. Omita las opciones que no necesite. Si ya ejecutó la configuración, puede iniciar las extensiones genéricas posteriormente; por ejemplo, para los tres servicios:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml -f docker-compose.postgres.yml -f docker-compose.redis.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml -f docker-compose.postgres.yml -f docker-compose.redis.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.mysql.yml -f docker-compose.postgres.yml -f docker-compose.redis.yml ps
 ```
 
-MySQL usa un volumen propio, crea la base de datos local indicada en `.env` y solo publica su puerto en `127.0.0.1`. Las aplicaciones en WSL se conectan a `localhost` y al puerto `MYSQL_PORT`; las aplicaciones en contenedores unidos a `LOCAL_INFRA_NETWORK` usan `mysql:3306`. Copie las credenciales necesarias al archivo de entorno privado de cada aplicación; no se transfieren automáticamente. Cada aplicación debe gestionar sus propias migraciones y, si comparte el servidor con otras, su propia base de datos y usuario.
+Cada extensión tiene su propio volumen persistente y publica su puerto solo en `127.0.0.1`. MySQL y PostgreSQL crean la base de datos local indicada en `.env`; Redis exige contraseña y conserva los datos con AOF. Las aplicaciones en WSL usan `localhost` y el puerto configurado; los contenedores unidos a `LOCAL_INFRA_NETWORK` usan `mysql:3306`, `postgres:5432` o `redis:6379`. Copie las credenciales necesarias al archivo de entorno privado de cada aplicación; no se transfieren automáticamente. Cada aplicación gestiona sus migraciones y debe usar bases de datos y usuarios separados si comparte un servidor SQL con otras.
 
-Mientras utilice MySQL, incluya **ambos** archivos `-f` también al consultar, actualizar o detener la pila. El Compose raíz por sí solo sigue administrando únicamente los seis servicios predeterminados. No añada contenedores de aplicaciones ni dependencias de sus frameworks aquí.
+Al consultar, actualizar o detener la pila, incluya `-f docker-compose.yml` y **todos** los archivos opcionales con los que inició los servicios. El Compose raíz por sí solo sigue administrando únicamente los seis servicios predeterminados. No añada contenedores de aplicaciones ni dependencias de sus frameworks aquí.
+Si vuelve a ejecutar `setup-local.sh`, repita las opciones de todos los servicios opcionales que ya estén activos para mantenerlos en la misma operación Compose.
+Para dejar de usar una extensión, detenga primero la pila con todos sus archivos `-f` (sin `--volumes` si desea conservar los datos) y reiníciela solo con las opciones que necesite.
 
 ## Detención del Entorno
 
@@ -199,7 +209,7 @@ Detenga los contenedores conservando los volúmenes de datos:
 docker compose down
 ```
 
-Si está usando MySQL opcional, use `docker compose -f docker-compose.yml -f docker-compose.mysql.yml down` en lugar del comando anterior.
+Si usa servicios opcionales, incluya sus archivos `-f` al ejecutar `down` o `down --volumes` para detenerlos y, si corresponde, eliminar sus datos.
 
 Para eliminar permanentemente todos los datos de los servicios locales:
 
@@ -245,6 +255,8 @@ bash ./update-local.sh --force
 | Mailpit | Servidor SMTP de desarrollo y visor de correos electrónicos | SMTP `localhost:1025`, `http://localhost:8025` | Ninguna |
 | Portainer | Administración del entorno Docker | `http://localhost:9002`, `https://localhost:9443` | Cree un administrador local en el primer acceso |
 | MySQL (opcional) | Base de datos relacional compartida | `mysql://localhost:3306` | Credenciales de MySQL en `.env` |
+| PostgreSQL (opcional) | Base de datos relacional compartida | `postgresql://localhost:5432` | Credenciales de PostgreSQL en `.env` |
+| Redis (opcional) | Caché y mensajería en memoria | `redis://localhost:6379` | Contraseña de Redis en `.env` |
 
 Todos los puertos se enlazan a `127.0.0.1` y pueden cambiarse en `.env` antes del inicio.
 
@@ -259,24 +271,30 @@ flowchart TD
     INFRA --> MQ[RabbitMQ]
     INFRA --> DB[(MongoDB)]
     INFRA --> SQL[(MySQL opcional)]
+    INFRA --> PG[(PostgreSQL opcional)]
+    INFRA --> CACHE[(Redis opcional)]
     INFRA --> STORAGE[MinIO]
     INFRA --> MAIL[Mailpit]
     INFRA --> TOOLS[Mongo Express y Portainer]
     HOST --> MQ
     HOST --> DB
     HOST --> SQL
+    HOST --> PG
+    HOST --> CACHE
     HOST --> STORAGE
     HOST --> MAIL
     CONTAINERS --> NETWORK[local-infrastructure-network]
     NETWORK --> MQ
     NETWORK --> DB
     NETWORK --> SQL
+    NETWORK --> PG
+    NETWORK --> CACHE
     NETWORK --> STORAGE
     NETWORK --> MAIL
 ```
 
 Las aplicaciones ejecutadas en el host se conectan mediante `localhost`. Las aplicaciones en contenedores pueden unirse a la red Docker compartida y usar nombres de servicios de Compose como `rabbitmq`, `mongo`, `minio` y `mailpit`.
-Si se inicia la extensión de MySQL, el nombre de servicio `mysql` también estará disponible en esa red.
+Si se inician las extensiones opcionales, los nombres `mysql`, `postgres` y `redis` también estarán disponibles en esa red.
 
 ## Trabajo con Repositorios de Aplicaciones
 
@@ -299,6 +317,7 @@ Conecte el servicio de la aplicación a esa red. De esta forma podrá resolver l
 | --- | --- |
 | `bash ./setup-local.sh` | Genera la configuración local e inicia los servicios compartidos. |
 | `bash ./setup-local.sh --with-mysql` | Además, valida e inicia MySQL opcional en la primera ejecución. |
+| `bash ./setup-local.sh --with-postgres --with-redis` | Inicia PostgreSQL y Redis opcionales junto con los servicios predeterminados. |
 | `bash ./setup-local.sh --repository name=<git-url>` | Clona un repositorio en `repositorios/name` e inicia los servicios compartidos. |
 | `bash ./update-local.sh` | Actualiza de forma segura los repositorios aptos en `repositorios/`. |
 | `bash ./update-local.sh --force` | Restablece los repositorios aptos a su rama upstream y descarta el trabajo local. |
@@ -320,8 +339,9 @@ Conecte el servicio de la aplicación a esa red. De esta forma podrá resolver l
 | Compose informa de una variable de entorno faltante | Ejecute `bash ./setup-local.sh` para crear `.env`, o restaure el valor local necesario sin confirmarlo en Git. |
 | Mongo Express espera a MongoDB | Ejecute `docker compose ps` y espere hasta que MongoDB esté saludable. Inspeccione `docker compose logs mongo` si no llega a estar saludable. |
 | MySQL no acepta conexiones | Inicie la pila con ambos archivos Compose, compruebe su salud con `docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps` y revise que el puerto de `.env` esté disponible. No cambie las credenciales sin restablecer también el volumen de MySQL. |
+| PostgreSQL o Redis no aceptan conexiones | Confirme que incluyó el archivo Compose correspondiente, revise su estado con los mismos archivos `-f` y compruebe que los puertos locales estén disponibles. Las credenciales iniciales de PostgreSQL no cambian en un volumen existente. |
 | Un contenedor de aplicación no puede resolver un servicio compartido | Conecte el servicio Compose de la aplicación a `local-infrastructure-network`. |
-| Los datos locales necesitan un restablecimiento limpio | Ejecute `docker compose down --volumes` (con ambos archivos `-f` si usó MySQL) y después `bash ./setup-local.sh`. Esto elimina permanentemente los datos de infraestructura local. |
+| Los datos locales necesitan un restablecimiento limpio | Ejecute `docker compose down --volumes` con todos los archivos `-f` de los servicios que utilizó y después `bash ./setup-local.sh` con las opciones deseadas. Esto elimina permanentemente los datos de infraestructura local. |
 | Se omite la actualización de un repositorio | Resuelva los cambios locales, configure una rama upstream o use `--force` solo después de confirmar que el trabajo local puede descartarse. |
 
 ## Seguridad
