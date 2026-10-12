@@ -39,13 +39,13 @@ La configuración Compose raíz ejecuta únicamente servicios compartidos de res
 
 - WSL o Linux con Bash
 - Acceso a `sudo` y conectividad a Internet para una instalación automática inicial
-- Debian o Ubuntu cuando se requiera el aprovisionamiento automático del host
+- Debian o Ubuntu para compilar PHP 8.3.6 con la imagen de la misma distribución
 
 El mismo flujo `setup-local.sh` se ejecuta en WSL y Linux. En Debian o Ubuntu, instala Git, Docker Engine y el complemento Docker Compose que falten, y después inicia Docker Engine. Si las herramientas ya existen, las valida sin reinstalar nada.
 
-En otras distribuciones de Linux, el script se ejecuta normalmente cuando Git, Docker Engine, Docker Compose v2, `od` y `tr` ya están instalados. Si falta una herramienta necesaria, finaliza con un mensaje claro porque el aprovisionamiento automático se limita intencionadamente a Debian y Ubuntu.
+En esta rama, la compilación automática de PHP requiere Debian o Ubuntu. En otras distribuciones, el setup termina con un mensaje claro antes de descargar phpenv.
 
-En Windows, instale primero una distribución WSL Debian o Ubuntu y ejecute la configuración dentro de ella. El script instala Docker Engine en esa distribución si falta; no utiliza un runtime de contenedores alojado en Windows. Este repositorio no instala ningún runtime de aplicaciones, gestor de paquetes ni framework.
+En Windows, instale primero una distribución WSL Debian o Ubuntu y ejecute la configuración dentro de ella. El script instala Docker Engine en esa distribución si falta; no utiliza un runtime de contenedores alojado en Windows. En esta rama también prepara PHP 8.3.6 con phpenv dentro de `enviroment/phpenv/`; no instala dependencias ni frameworks de aplicaciones.
 
 ## Estructura del Repositorio
 
@@ -67,6 +67,12 @@ local-infrastructure/
 │   ├── internationalization.md
 │   ├── local-services.md
 │   └── timezone-handling.md
+├── enviroment/
+│   ├── activate.sh
+│   ├── check-phpenv.sh
+│   ├── copy-runtime-libraries.sh
+│   ├── php-build.Dockerfile
+│   └── setup-phpenv.sh
 ├── repositorios/
 │   └── .gitkeep
 ├── setup-local.sh
@@ -81,7 +87,7 @@ cd local-infrastructure
 bash ./setup-local.sh
 ```
 
-El script de configuración instala los requisitos previos del host que falten en las distribuciones compatibles, valida el daemon de Docker, crea un archivo `.env` ignorado con credenciales locales generadas e inicia los servicios compartidos.
+El script de configuración instala los requisitos previos del host que falten en las distribuciones compatibles, prepara PHP 8.3.6 con phpenv, valida el daemon de Docker, crea un archivo `.env` ignorado con credenciales locales generadas e inicia los servicios compartidos.
 
 Para incluir servicios opcionales desde la primera ejecución en WSL, añada las opciones que necesite. Por ejemplo, para iniciar los tres:
 
@@ -103,6 +109,21 @@ bash ./setup-local.sh \
 ```
 
 Cada repositorio se clona en `repositorios/<name>`. El script no instala dependencias de aplicaciones ni inicia aplicaciones porque esas acciones dependen de la tecnología y las convenciones de cada repositorio.
+
+### PHP 8.3.6 en esta rama
+
+`setup-local.sh` instala phpenv, php-build y PHP 8.3.6 en `enviroment/phpenv/`. La carpeta está ignorada por Git. En Debian o Ubuntu compila PHP en un contenedor temporal con los paquetes de desarrollo y copia las bibliotecas de ejecución que falten al entorno local; no reemplaza el PHP del sistema, no instala esos paquetes en el host ni modifica la configuración global de Bash. La compilación inicial puede tardar varios minutos.
+
+Para usar la versión de esta rama en una terminal, actívela explícitamente:
+
+```bash
+source ./enviroment/activate.sh
+php -v
+# Ejecute aquí los comandos PHP de la aplicación.
+deactivate_phpenv
+```
+
+La activación afecta solo a esa terminal. phpenv también instala Composer en este entorno, así que `composer install` usará el PHP seleccionado cuando se ejecute dentro del repositorio de cada aplicación. Cada aplicación conserva sus propias dependencias y archivos de entorno. Consulte [Repositorios de Aplicaciones](docs/application-repositories.md).
 
 ## Configuración del Entorno
 
@@ -238,6 +259,8 @@ bash ./update-local.sh
 ```
 
 El script obtiene actualizaciones remotas y realiza avance rápido en los repositorios con una rama upstream configurada. Omite repositorios con cambios locales, commits solo locales, historial divergente, HEAD separados o configuración upstream faltante.
+
+En esta rama, el script comprueba primero que PHP 8.3.6 esté instalado en `enviroment/phpenv/`. No cambia esa versión; los repositorios de aplicaciones siguen avanzando según su upstream y deben mantener requisitos de PHP compatibles.
 
 Use `--force` únicamente cuando los cambios locales puedan descartarse. Restablece los repositorios afectados a su rama upstream y elimina archivos sin seguimiento:
 

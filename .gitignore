@@ -4,3 +4,6 @@
 
 repositorios/*
 !repositorios/.gitkeep
+
+# PHP 8.3.6 runtime installed only for this branch.
+enviroment/phpenv/

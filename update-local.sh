@@ -194,6 +194,8 @@ parse_arguments() {
 
 parse_arguments "$@"
 
+bash "${ROOT_DIR}/enviroment/check-phpenv.sh"
+
 command -v git >/dev/null 2>&1 || {
   log_error "git is required but was not found."
   exit 1

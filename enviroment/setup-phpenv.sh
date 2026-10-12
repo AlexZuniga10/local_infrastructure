@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PHPENV_ROOT="${ROOT_DIR}/enviroment/phpenv"
+PHP_VERSION="8.3.6"
+PHPENV_REPOSITORY="https://github.com/phpenv/phpenv.git"
+PHP_BUILD_REPOSITORY="https://github.com/php-build/php-build.git"
+
+die() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 1
+}
+
+select_build_image() {
+  [ -r /etc/os-release ] || die "Cannot determine the host distribution."
+  . /etc/os-release
+
+  case "${ID:-}" in
+    ubuntu)
+      # Ubuntu point releases share the same base image tag (for example 24.04).
+      if [[ "${VERSION_ID}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+        BASE_IMAGE="ubuntu:${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+      else
+        die "Cannot determine the Ubuntu base image tag from VERSION_ID=${VERSION_ID}."
+      fi
+      ;;
+    debian)
+      BASE_IMAGE="debian:${VERSION_ID}"
+      ;;
+    *)
+      die "Automatic PHP builds support Debian and Ubuntu only."
+      ;;
+  esac
+
+  BUILD_IMAGE_TAG="local-phpenv-build:${ID}-${VERSION_ID//./-}"
+}
+
+select_docker_command() {
+  if docker info >/dev/null 2>&1; then
+    DOCKER_COMMAND=(docker)
+  elif [ "${EUID}" -ne 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+    DOCKER_COMMAND=(sudo docker)
+  else
+    die "Docker Engine is required to build isolated PHP 8.3.6."
+  fi
+}
+
+ensure_build_image() {
+  if [ "${BUILD_IMAGE_READY:-0}" -eq 1 ]; then
+    return
+  fi
+
+  "${DOCKER_COMMAND[@]}" build \
+    --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+    -t "${BUILD_IMAGE_TAG}" \
+    -f "${ROOT_DIR}/enviroment/php-build.Dockerfile" \
+    "${ROOT_DIR}/enviroment"
+  BUILD_IMAGE_READY=1
+}
+
+install_missing_runtime_libraries() {
+  local missing_libraries
+  local previous_missing=''
+  local attempt
+
+  mkdir -p "${PHPENV_ROOT}/lib"
+  for attempt in 1 2 3; do
+    missing_libraries="$(LD_LIBRARY_PATH="${PHPENV_ROOT}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      ldd "${PHPENV_ROOT}/versions/${PHP_VERSION}/bin/php" |
+      awk '$2 == "=>" && $3 == "not" && $4 == "found" {print $1}')"
+    [ -n "${missing_libraries}" ] || return 0
+    [ "${missing_libraries}" != "${previous_missing}" ] || die "Unable to provide required PHP libraries: ${missing_libraries}"
+    previous_missing="${missing_libraries}"
+
+    printf 'Copying missing PHP runtime libraries into %s\n' "${PHPENV_ROOT}/lib"
+    ensure_build_image
+    "${DOCKER_COMMAND[@]}" run --rm \
+      --user "$(id -u):$(id -g)" \
+      --env "PHPENV_ROOT=${PHPENV_ROOT}" \
+      --env "MISSING_LIBRARIES=${missing_libraries}" \
+      --volume "${ROOT_DIR}:${ROOT_DIR}" \
+      "${BUILD_IMAGE_TAG}" \
+      bash "${ROOT_DIR}/enviroment/copy-runtime-libraries.sh"
+  done
+
+  die "Unable to resolve all PHP runtime libraries."
+}
+
+command -v git >/dev/null 2>&1 || die "Git is required to install phpenv."
+select_build_image
+select_docker_command
+
+if [ ! -d "${PHPENV_ROOT}" ]; then
+  printf 'Installing phpenv in %s\n' "${PHPENV_ROOT}"
+  git clone --depth 1 "${PHPENV_REPOSITORY}" "${PHPENV_ROOT}"
+fi
+[ -x "${PHPENV_ROOT}/bin/phpenv" ] || die "${PHPENV_ROOT} exists but is not a valid phpenv installation."
+
+mkdir -p "${PHPENV_ROOT}/plugins"
+if [ ! -d "${PHPENV_ROOT}/plugins/php-build" ]; then
+  git clone --depth 1 "${PHP_BUILD_REPOSITORY}" "${PHPENV_ROOT}/plugins/php-build"
+fi
+[ -x "${PHPENV_ROOT}/plugins/php-build/bin/php-build" ] || die "The php-build plugin is incomplete."
+
+export PHPENV_ROOT PHPENV_VERSION="${PHP_VERSION}"
+export PATH="${PHPENV_ROOT}/shims:${PHPENV_ROOT}/bin:${PATH}"
+
+if [ ! -x "${PHPENV_ROOT}/versions/${PHP_VERSION}/bin/php" ]; then
+  printf 'Building PHP %s in %s\n' "${PHP_VERSION}" "${PHPENV_ROOT}"
+  ensure_build_image
+  "${DOCKER_COMMAND[@]}" run --rm \
+    --user "$(id -u):$(id -g)" \
+    --env "HOME=/tmp" \
+    --env "PHPENV_ROOT=${PHPENV_ROOT}" \
+    --env "PHPENV_VERSION=${PHP_VERSION}" \
+    --volume "${ROOT_DIR}:${ROOT_DIR}" \
+    --workdir "${ROOT_DIR}" \
+    "${BUILD_IMAGE_TAG}" \
+    "${PHPENV_ROOT}/bin/phpenv" install "${PHP_VERSION}"
+fi
+
+install_missing_runtime_libraries
+phpenv rehash
+bash "${ROOT_DIR}/enviroment/check-phpenv.sh"
+printf 'PHP %s is ready in %s\n' "${PHP_VERSION}" "${PHPENV_ROOT}"

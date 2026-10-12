@@ -333,6 +333,9 @@ parse_arguments() {
 parse_arguments "$@"
 ensure_host_requirements
 
+log_step "Preparing isolated PHP 8.3.6 runtime"
+bash "${ROOT_DIR}/enviroment/setup-phpenv.sh"
+
 mkdir -p "${REPOSITORIES_DIR}"
 create_env_file
 ensure_optional_service_config

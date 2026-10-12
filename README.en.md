@@ -39,13 +39,13 @@ The root Compose configuration runs only shared backing services. Application co
 
 - WSL or Linux with Bash
 - `sudo` access and internet connectivity for an initial automatic installation
-- Debian or Ubuntu when automatic host provisioning is required
+- Debian or Ubuntu to build PHP 8.3.6 with a matching distribution image
 
 The same `setup-local.sh` workflow runs in WSL and Linux. On Debian or Ubuntu, it installs missing Git, Docker Engine, and the Docker Compose plugin, then starts Docker Engine. If the tools already exist, it validates them without reinstalling anything.
 
-On other Linux distributions, the script runs normally when Git, Docker Engine, Docker Compose v2, `od`, and `tr` are already installed. If a required tool is missing, it exits with a clear message because automatic provisioning is intentionally limited to Debian and Ubuntu.
+On this branch, automatic PHP builds require Debian or Ubuntu. On other distributions, setup exits with a clear message before downloading phpenv.
 
-On Windows, install a Debian or Ubuntu WSL distribution first and run setup inside it. The script installs Docker Engine in that distribution if needed; it does not use a Windows-hosted container runtime. No application runtime, package manager, or framework is installed by this repository.
+On Windows, install a Debian or Ubuntu WSL distribution first and run setup inside it. The script installs Docker Engine in that distribution if needed; it does not use a Windows-hosted container runtime. This branch also prepares PHP 8.3.6 with phpenv under `enviroment/phpenv/`; it does not install application dependencies or frameworks.
 
 ## Repository Structure
 
@@ -67,6 +67,12 @@ local-infrastructure/
 │   ├── internationalization.md
 │   ├── local-services.md
 │   └── timezone-handling.md
+├── enviroment/
+│   ├── activate.sh
+│   ├── check-phpenv.sh
+│   ├── copy-runtime-libraries.sh
+│   ├── php-build.Dockerfile
+│   └── setup-phpenv.sh
 ├── repositorios/
 │   └── .gitkeep
 ├── setup-local.sh
@@ -81,7 +87,7 @@ cd local-infrastructure
 bash ./setup-local.sh
 ```
 
-The setup script installs missing host prerequisites on supported distributions, validates the Docker daemon, creates an ignored `.env` file with generated local credentials, and starts the shared services.
+The setup script installs missing host prerequisites on supported distributions, prepares PHP 8.3.6 with phpenv, validates the Docker daemon, creates an ignored `.env` file with generated local credentials, and starts the shared services.
 
 To include optional services on the first run in WSL, add the flags you need. For example, to start all three:
 
@@ -103,6 +109,21 @@ bash ./setup-local.sh \
 ```
 
 Each repository is cloned to `repositorios/<name>`. The script does not install application dependencies or start applications because those actions depend on each repository's technology and conventions.
+
+### PHP 8.3.6 on this branch
+
+`setup-local.sh` installs phpenv, php-build, and PHP 8.3.6 under `enviroment/phpenv/`. Git ignores that directory. On Debian or Ubuntu it builds PHP in a temporary container with the development packages and copies any missing runtime libraries into the local environment; it does not replace system PHP, install those packages on the host, or modify global Bash startup files. The first build can take several minutes.
+
+Activate this branch's version explicitly in a terminal:
+
+```bash
+source ./enviroment/activate.sh
+php -v
+# Run application PHP commands here.
+deactivate_phpenv
+```
+
+Activation affects only that terminal. phpenv also installs Composer in this environment, so `composer install` uses the selected PHP when run from an application repository. Each application still owns its dependencies and environment files. See [Application Repositories](docs/application-repositories.md).
 
 ## Environment Configuration
 
@@ -238,6 +259,8 @@ bash ./update-local.sh
 ```
 
 The script fetches remote updates and fast-forwards repositories with a configured upstream branch. It skips repositories with local changes, local-only commits, divergent history, detached HEADs, or missing upstream configuration.
+
+On this branch, it first checks that PHP 8.3.6 is installed under `enviroment/phpenv/`. It does not change that version; application repositories still advance according to their upstream and must retain compatible PHP requirements.
 
 Use `--force` only when local changes may be discarded. It resets affected repositories to their upstream branch and removes untracked files:
 
