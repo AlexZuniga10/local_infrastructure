@@ -125,6 +125,27 @@ deactivate_phpenv
 
 Activation affects only that terminal. phpenv also installs Composer in this environment, so `composer install` uses the selected PHP when run from an application repository. Each application still owns its dependencies and environment files. See [Application Repositories](docs/application-repositories.md).
 
+### Running a PHP or Laravel repository locally
+
+This is a **local development** workflow, not a production deployment. First check the application's `composer.json`, `composer.lock`, and README to confirm that its dependencies support PHP 8.3.6 and to identify the services it needs. Laravel 8, if used by an application, was officially supported only through PHP 8.1 and stopped receiving security fixes on January 24, 2023. This branch does not make Laravel 8 compatible or safe for production: track the gap and plan an application upgrade before deploying outside local development. See the [Laravel 8 support policy](https://laravel.com/docs/8.x/releases).
+
+Once compatibility is confirmed, prepare shared services from the infrastructure root and run each application from its own repository:
+
+```bash
+# Once, from the local-infrastructure root:
+bash ./setup-local.sh                 # Add --with-mysql, --with-postgres, or --with-redis if needed.
+
+# In each working terminal, from the local-infrastructure root:
+source ./enviroment/activate.sh
+php -v
+cd repositorios/REPOSITORY_NAME
+# Configure this application's private .env according to its README.
+composer install
+php artisan serve --host=127.0.0.1
+```
+
+Replace `REPOSITORY_NAME` with the actual directory name. `activate.sh` only selects PHP in the current shell; it does not start containers or install application dependencies. If shared services were set up earlier but are stopped, run `docker compose up -d` from the infrastructure root, including the same `-f` files used for optional services. Run migrations, tests, queue processes, and frontend commands only as directed by the application repository. A containerized application uses its own Compose file and the shared network; it does not need host PHP activation. See the detailed [PHP and Laravel local workflow](docs/php-laravel-local-workflow.md) (Spanish).
+
 ## Environment Configuration
 
 `.env.example` contains non-sensitive configuration such as local ports, service usernames, and the shared Docker network name. `setup-local.sh` copies it to `.env` and appends generated passwords. If `.env` already exists, setup preserves its values and adds only missing optional settings.
@@ -324,6 +345,8 @@ When the optional extensions are started, the service names `mysql`, `postgres`,
 
 Application repositories are normal Git repositories located directly under `repositorios/`; they are not submodules. Each repository owns its branches, dependencies, environment configuration, tests, and development commands.
 
+For this line of work, create task branches. Never commit directly to `main` or `develop`, and never open a PR targeting either branch, here or in the application repositories. Check the PR target and follow the [branch, MVC, and security rules](docs/php-laravel-local-workflow.md) (Spanish).
+
 For a containerized application, join the network configured by `LOCAL_INFRA_NETWORK`:
 
 ```yaml
@@ -376,6 +399,7 @@ Attach the application service to that network. It can then resolve the shared s
 - Bind services to localhost unless a deliberate development requirement says otherwise.
 - In WSL, keep the repository in the Linux filesystem when local file permissions must be enforced.
 - Use a secret manager and production-specific access controls outside local development.
+- In Laravel applications, validate input, authorize access to each resource, protect forms with CSRF, and review dependencies; see the [security and MVC guide](docs/php-laravel-local-workflow.md) (Spanish).
 
 ## Adding a New Project
 
@@ -396,13 +420,14 @@ Start the application using its own documentation. For applications running on t
 
 - [Local Services](docs/local-services.md)
 - [Application Repositories](docs/application-repositories.md)
+- [PHP and Laravel local workflow: branches, MVC, and security](docs/php-laravel-local-workflow.md) (Spanish)
 - [Direct Upload Architecture](docs/direct-upload-architecture.md)
 - [Internationalization](docs/internationalization.md)
 - [Timezone Handling](docs/timezone-handling.md)
 
 ## Contributing
 
-1. Create a branch.
+1. Create a task branch. Do not commit directly to `main` or `develop`, or open a PR targeting those branches; use the approved integration branch for this line of work.
 2. Make focused, generic infrastructure changes.
 3. Validate shell syntax and Compose configuration.
 4. Update documentation when behavior changes.

@@ -125,6 +125,27 @@ deactivate_phpenv
 
 La activación afecta solo a esa terminal. phpenv también instala Composer en este entorno, así que `composer install` usará el PHP seleccionado cuando se ejecute dentro del repositorio de cada aplicación. Cada aplicación conserva sus propias dependencias y archivos de entorno. Consulte [Repositorios de Aplicaciones](docs/application-repositories.md).
 
+### Despliegue local de un repositorio PHP o Laravel
+
+Este es un flujo de **desarrollo local**, no un despliegue de producción. Primero revise el `composer.json`, el `composer.lock` y el README de la aplicación para confirmar que sus dependencias admiten PHP 8.3.6 y saber qué servicios requiere. Laravel 8, si lo usa una aplicación, tuvo soporte oficial hasta PHP 8.1 y dejó de recibir correcciones de seguridad el 24 de enero de 2023. Esta rama no convierte Laravel 8 en compatible ni seguro para producción: registre esa brecha y planifique actualizar la aplicación antes de desplegarla fuera del entorno local. Consulte la [política de soporte de Laravel 8](https://laravel.com/docs/8.x/releases).
+
+Una vez confirmada la compatibilidad, prepare los servicios desde la raíz y ejecute cada aplicación desde su propio repositorio:
+
+```bash
+# Una vez, desde la raíz de local-infrastructure:
+bash ./setup-local.sh                 # Añada --with-mysql, --with-postgres o --with-redis si aplica.
+
+# En cada terminal de trabajo, desde la raíz de local-infrastructure:
+source ./enviroment/activate.sh
+php -v
+cd repositorios/NOMBRE_DEL_REPOSITORIO
+# Configure el .env privado de esta aplicación según su README.
+composer install
+php artisan serve --host=127.0.0.1
+```
+
+Sustituya `NOMBRE_DEL_REPOSITORIO` por la carpeta real. `activate.sh` solo cambia el PHP de la terminal: no inicia contenedores ni instala dependencias de la aplicación. Si los servicios ya están preparados pero detenidos, ejecute `docker compose up -d` desde la raíz; incluya los archivos `-f` usados para servicios opcionales. Ejecute migraciones, pruebas, procesos de cola y comandos de frontend solo según la documentación de la aplicación. Si la aplicación corre en su propio contenedor, use el Compose de ese repositorio y la red compartida; no necesita activar el PHP del host. La guía completa está en [Flujo local de PHP y Laravel](docs/php-laravel-local-workflow.md).
+
 ## Configuración del Entorno
 
 `.env.example` contiene configuración no sensible, como puertos locales, nombres de usuario de servicios y el nombre de la red Docker compartida. `setup-local.sh` lo copia a `.env` y añade contraseñas generadas. Si ya existe un `.env`, el script conserva sus valores y añade únicamente las variables opcionales que falten.
@@ -324,6 +345,8 @@ Si se inician las extensiones opcionales, los nombres `mysql`, `postgres` y `red
 
 Los repositorios de aplicaciones son repositorios Git normales ubicados directamente en `repositorios/`; no son submódulos. Cada repositorio es propietario de sus ramas, dependencias, configuración de entorno, pruebas y comandos de desarrollo.
 
+En esta línea de trabajo, cree ramas de tarea. Nunca haga commits directos en `main` ni en `develop` y nunca abra un PR dirigido a esas ramas, tanto aquí como en los repositorios de aplicaciones. Verifique siempre el destino del PR y siga las [reglas de ramas, MVC y seguridad](docs/php-laravel-local-workflow.md).
+
 Para una aplicación en contenedor, únase a la red configurada por `LOCAL_INFRA_NETWORK`:
 
 ```yaml
@@ -376,6 +399,7 @@ Conecte el servicio de la aplicación a esa red. De esta forma podrá resolver l
 - Enlace los servicios a localhost salvo que un requisito de desarrollo deliberado indique lo contrario.
 - En WSL, mantenga el repositorio en el sistema de archivos de Linux cuando sea necesario aplicar permisos locales a los archivos.
 - Use un gestor de secretos y controles de acceso específicos de producción fuera del desarrollo local.
+- En aplicaciones Laravel, valide entradas, autorice cada recurso, proteja formularios con CSRF y revise dependencias; consulte la [guía de seguridad y MVC](docs/php-laravel-local-workflow.md).
 
 ## Adición de un Nuevo Proyecto
 
@@ -396,13 +420,14 @@ Inicie la aplicación con su propia documentación. Para las aplicaciones que se
 
 - [Servicios Locales](docs/local-services.md)
 - [Repositorios de Aplicaciones](docs/application-repositories.md)
+- [Flujo local de PHP y Laravel: ramas, MVC y seguridad](docs/php-laravel-local-workflow.md)
 - [Arquitectura de Carga Directa](docs/direct-upload-architecture.md)
 - [Internacionalización](docs/internationalization.md)
 - [Gestión de Zonas Horarias](docs/timezone-handling.md)
 
 ## Contribución
 
-1. Cree una rama.
+1. Cree una rama de tarea. No haga commits directos en `main` o `develop` ni abra PR dirigidos a esas ramas; seleccione la rama de integración autorizada para esta línea de trabajo.
 2. Realice cambios de infraestructura concretos y genéricos.
 3. Valide la sintaxis de shell y la configuración de Compose.
 4. Actualice la documentación cuando cambie el comportamiento.
