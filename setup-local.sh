@@ -357,8 +357,13 @@ fi
 log_step "Validating local infrastructure configuration"
 (cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" config --quiet)
 
-log_step "Starting local infrastructure"
-(cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" up -d)
+log_step "Starting local infrastructure and waiting for service health"
+if ! (cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" up -d --wait --wait-timeout 180); then
+  log_warn "One or more shared services did not become ready. Current status:"
+  (cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" ps) || true
+  die "Check the service logs with '${DOCKER_COMMAND[*]} compose ${COMPOSE_FILES[*]} logs <service>' and rerun setup after fixing the cause. Data volumes were preserved."
+fi
 
 log_success "Local infrastructure is running."
+(cd "${ROOT_DIR}" && run_docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" ps)
 log_info "Run '${DOCKER_COMMAND[*]} compose ${COMPOSE_FILES[*]} ps' to inspect service status."

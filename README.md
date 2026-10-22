@@ -87,7 +87,7 @@ cd local-infrastructure
 bash ./setup-local.sh
 ```
 
-El script de configuración instala los requisitos previos del host que falten en las distribuciones compatibles, prepara PHP 8.3.6 con phpenv, valida el daemon de Docker, crea un archivo `.env` ignorado con credenciales locales generadas e inicia los servicios compartidos.
+El script de configuración instala los requisitos previos del host que falten en las distribuciones compatibles, prepara PHP 8.3.6 con phpenv, valida el daemon de Docker, crea un archivo `.env` ignorado con credenciales locales generadas e inicia los servicios compartidos. Espera hasta que los servicios con comprobación de salud, incluido MinIO, estén saludables antes de informar éxito; si alguno falla, muestra el estado y conserva los volúmenes.
 
 Para incluir servicios opcionales desde la primera ejecución en WSL, añada las opciones que necesite. Por ejemplo, para iniciar los tres:
 
@@ -96,6 +96,14 @@ bash ./setup-local.sh --with-mysql --with-postgres --with-redis
 ```
 
 Cada opción (`--with-mysql`, `--with-postgres`, `--with-redis`) es independiente. El script valida la configuración Compose e inicia los seis servicios predeterminados más los seleccionados; no instala dependencias de aplicaciones.
+
+### Instalaciones vacías y portables
+
+En Linux o WSL, un despliegue con volúmenes nuevos inicia los servicios generales **sin datos de aplicaciones**: no importa bases de datos, colas, buckets, correos ni la configuración de Portainer de otro equipo. Solo se crean las cuentas y las bases iniciales propias de cada servicio. Son instancias compartidas por equipo, no contenedores por aplicación. Para preparar todos los servicios disponibles, use las tres opciones anteriores, sin `--repository`.
+
+Cada equipo genera su propio `.env` privado y conserva después los datos en sus volúmenes locales. No copie `.env`, volúmenes, respaldos ni datos de proyectos para distribuir esta plantilla. Si Docker ya tiene volúmenes del mismo proyecto Compose, se reutilizan: **volver a ejecutar la configuración no los vacía**.
+
+Los archivos Compose también pueden usarse directamente en Linux o dentro de WSL con Docker Engine y Compose v2 instalados, sin el runtime PHP de esta rama. Para ese flujo, prepare un `.env` privado a partir de `.env.example`, añada contraseñas aleatorias nuevas para las ocho variables de contraseña indicadas en [Configuración del Entorno](#configuración-del-entorno), restrinja sus permisos a `600` y use los comandos Compose de [Inicio del Entorno](#inicio-del-entorno). El setup automático de esta rama conserva su requisito adicional de Debian o Ubuntu para preparar PHP.
 
 Si la configuración añade al usuario actual al grupo `docker`, abra una nueva sesión de WSL o Linux antes de ejecutar comandos de Docker sin `sudo`. Hasta entonces, use el comando de Docker que imprima la configuración.
 
@@ -244,6 +252,16 @@ Al consultar, actualizar o detener la pila, incluya `-f docker-compose.yml` y **
 Si vuelve a ejecutar `setup-local.sh`, repita las opciones de todos los servicios opcionales que ya estén activos para mantenerlos en la misma operación Compose.
 Para dejar de usar una extensión, detenga primero la pila con todos sus archivos `-f` (sin `--volumes` si desea conservar los datos) y reiníciela solo con las opciones que necesite.
 
+## Persistencia de los Servicios
+
+RabbitMQ, MongoDB, MinIO, Mailpit y Portainer tienen volúmenes propios; también MySQL, PostgreSQL y Redis cuando se seleccionan. Mongo Express es una interfaz sin datos propios: administra los de MongoDB. Mailpit usa `mailpit_data` y `MP_DATABASE=/data/mailpit.db` para conservar sus correos al recrear el contenedor, sujeto a su retención (500 mensajes por defecto).
+
+Mantenga `COMPOSE_PROJECT_NAME` y los nombres de los volúmenes al actualizar o mover esta carpeta en el mismo equipo. Cambiar el proyecto puede seleccionar volúmenes nuevos y hacer que los servicios parezcan vacíos; no migra ni elimina los anteriores. Los volúmenes no se transfieren mediante Git ni sustituyen a los respaldos.
+
+**Antes de actualizar una instalación anterior:** RabbitMQ debe conservar su identidad. Si usaba un hostname generado por Docker, configure ese hostname anterior en `RABBITMQ_HOSTNAME` dentro del `.env` privado antes de recrearlo; el nuevo valor predeterminado `rabbitmq` es para instalaciones nuevas. Cambiarlo con datos existentes puede hacer que RabbitMQ no encuentre su estado anterior. Un Mailpit anterior sin almacenamiento persistente requiere guardar o migrar sus correos localmente antes de recrearlo si desea conservarlos; el nuevo volumen no los recupera automáticamente. No regenere credenciales si reutiliza datos existentes.
+
+Consulte el [inventario de volúmenes y las precauciones de actualización](docs/local-services.md#persistence-and-existing-installations) antes de ejecutar setup, update o una recreación sobre una instalación existente.
+
 ## Detención del Entorno
 
 Detenga los contenedores conservando los volúmenes de datos:
@@ -255,6 +273,8 @@ docker compose down
 Si usa servicios opcionales, incluya sus archivos `-f` al ejecutar `down` o `down --volumes` para detenerlos y, si corresponde, eliminar sus datos.
 
 Para eliminar permanentemente todos los datos de los servicios locales:
+
+**Esta operación es destructiva y no es necesaria para instalar la plantilla en otro equipo.**
 
 ```bash
 docker compose down --volumes
@@ -279,7 +299,9 @@ Actualice los repositorios limpios en `repositorios/` en la rama actualmente act
 bash ./update-local.sh
 ```
 
-El script obtiene actualizaciones remotas y realiza avance rápido en los repositorios con una rama upstream configurada. Omite repositorios con cambios locales, commits solo locales, historial divergente, HEAD separados o configuración upstream faltante.
+El script obtiene actualizaciones remotas y realiza avance rápido en los repositorios con una rama upstream configurada. Omite repositorios con cambios locales, commits solo locales, historial divergente, HEAD separados o configuración upstream faltante. Después valida Compose y concilia los servicios compartidos con la configuración de esta rama, esperando a que estén listos. Esto aplica también la imagen y el control de salud actuales de MinIO sin eliminar su volumen.
+
+Si utiliza servicios opcionales, repita las opciones correspondientes al actualizar: `bash ./update-local.sh --with-mysql --with-postgres --with-redis`. Para actualizar solo los repositorios sin iniciar servicios, use `--skip-services`. La actualización necesita el `.env` de infraestructura generado por `setup-local.sh`, salvo cuando se omiten los servicios.
 
 En esta rama, el script comprueba primero que PHP 8.3.6 esté instalado en `enviroment/phpenv/`. No cambia esa versión; los repositorios de aplicaciones siguen avanzando según su upstream y deben mantener requisitos de PHP compatibles.
 
@@ -366,7 +388,8 @@ Conecte el servicio de la aplicación a esa red. De esta forma podrá resolver l
 | `bash ./setup-local.sh --with-mysql` | Además, valida e inicia MySQL opcional en la primera ejecución. |
 | `bash ./setup-local.sh --with-postgres --with-redis` | Inicia PostgreSQL y Redis opcionales junto con los servicios predeterminados. |
 | `bash ./setup-local.sh --repository name=<git-url>` | Clona un repositorio en `repositorios/name` e inicia los servicios compartidos. |
-| `bash ./update-local.sh` | Actualiza de forma segura los repositorios aptos en `repositorios/`. |
+| `bash ./update-local.sh` | Actualiza los repositorios aptos y concilia los servicios compartidos, esperando a que estén listos. |
+| `bash ./update-local.sh --skip-services` | Actualiza repositorios sin iniciar servicios. |
 | `bash ./update-local.sh --force` | Restablece los repositorios aptos a su rama upstream y descarta el trabajo local. |
 | `docker compose up -d` | Inicia los servicios compartidos. |
 | `docker compose down` | Detiene los servicios compartidos y conserva los volúmenes. |
@@ -384,6 +407,7 @@ Conecte el servicio de la aplicación a esa red. De esta forma podrá resolver l
 | El aprovisionamiento automático no está disponible | Use Debian o Ubuntu, o instale Git, Docker Engine, Docker Compose v2, `od` y `tr` antes de ejecutar la configuración en otra distribución de Linux. |
 | Un servicio no puede enlazar su puerto | Cambie la variable de puerto correspondiente en `.env` y ejecute `docker compose up -d`. |
 | Compose informa de una variable de entorno faltante | Ejecute `bash ./setup-local.sh` para crear `.env`, o restaure el valor local necesario sin confirmarlo en Git. |
+| MinIO no inicia o no queda saludable | Revise `docker compose ps minio` y `docker compose logs minio`. Confirme que se usa `cgr.dev/chainguard/minio:latest`; ejecute de nuevo `bash ./setup-local.sh` o `bash ./update-local.sh` para aplicar la configuración actual sin borrar `minio_data`. |
 | Mongo Express espera a MongoDB | Ejecute `docker compose ps` y espere hasta que MongoDB esté saludable. Inspeccione `docker compose logs mongo` si no llega a estar saludable. |
 | MySQL no acepta conexiones | Inicie la pila con ambos archivos Compose, compruebe su salud con `docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps` y revise que el puerto de `.env` esté disponible. No cambie las credenciales sin restablecer también el volumen de MySQL. |
 | PostgreSQL o Redis no aceptan conexiones | Confirme que incluyó el archivo Compose correspondiente, revise su estado con los mismos archivos `-f` y compruebe que los puertos locales estén disponibles. Las credenciales iniciales de PostgreSQL no cambian en un volumen existente. |

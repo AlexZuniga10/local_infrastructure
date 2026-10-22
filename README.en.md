@@ -87,7 +87,7 @@ cd local-infrastructure
 bash ./setup-local.sh
 ```
 
-The setup script installs missing host prerequisites on supported distributions, prepares PHP 8.3.6 with phpenv, validates the Docker daemon, creates an ignored `.env` file with generated local credentials, and starts the shared services.
+The setup script installs missing host prerequisites on supported distributions, prepares PHP 8.3.6 with phpenv, validates the Docker daemon, creates an ignored `.env` file with generated local credentials, and starts the shared services. It waits for services with health checks, including MinIO, to become healthy before reporting success. If one fails, it shows the current status and preserves data volumes.
 
 To include optional services on the first run in WSL, add the flags you need. For example, to start all three:
 
@@ -96,6 +96,14 @@ bash ./setup-local.sh --with-mysql --with-postgres --with-redis
 ```
 
 Each flag (`--with-mysql`, `--with-postgres`, `--with-redis`) is independent. Setup validates Compose and starts the six default services plus the selected ones; it does not install application dependencies.
+
+### Empty, portable installations
+
+On Linux or WSL, a deployment with new volumes starts the generic services **without application data**: it does not import databases, queues, buckets, messages, or another machine's Portainer configuration. Only each service's initial accounts and databases are created. These are shared instances per machine, not containers per application. To prepare all available services, use the three flags above without `--repository`.
+
+Each machine generates its own private `.env` and then retains data in its local volumes. Do not copy `.env`, volumes, backups, or project data to distribute this template. If Docker already has volumes for the same Compose project, they are reused: **rerunning setup does not empty them**.
+
+The Compose files can also be used directly on Linux or inside WSL with Docker Engine and Compose v2 installed, without this branch's PHP runtime. For that workflow, prepare a private `.env` from `.env.example`, add fresh random passwords for the eight password variables listed under [Environment Configuration](#environment-configuration), restrict its permissions to `600`, and use the Compose commands under [Starting the Environment](#starting-the-environment). This branch's automatic setup retains its additional Debian or Ubuntu requirement for preparing PHP.
 
 If setup adds the current user to the `docker` group, open a new WSL or Linux session before running Docker commands without `sudo`. Until then, use the Docker command printed by setup.
 
@@ -244,6 +252,16 @@ When inspecting, refreshing, or stopping the stack, include `-f docker-compose.y
 When rerunning `setup-local.sh`, repeat the flags for every optional service already running so they remain part of the same Compose operation.
 To stop using an extension, first stop the stack with all of its `-f` files (without `--volumes` to keep data), then restart with only the flags you need.
 
+## Service Persistence
+
+RabbitMQ, MongoDB, MinIO, Mailpit, and Portainer have their own volumes, as do MySQL, PostgreSQL, and Redis when selected. Mongo Express is a stateless interface to MongoDB's data. Mailpit uses `mailpit_data` and `MP_DATABASE=/data/mailpit.db` to retain messages when its container is recreated, subject to retention (500 messages by default).
+
+Keep `COMPOSE_PROJECT_NAME` and volume names unchanged when updating or moving this directory on the same machine. Changing the project can select new volumes and make services appear empty; it does not migrate or delete the old ones. Volumes are not transferred through Git and are not a substitute for backups.
+
+**Before updating an older installation:** RabbitMQ must retain its identity. If it used a Docker-generated hostname, configure that previous hostname as `RABBITMQ_HOSTNAME` in the private `.env` before recreating it; the new default `rabbitmq` is for new installations. Changing it with existing data can prevent RabbitMQ from finding its previous state. Older Mailpit containers without persistent storage require saving or migrating their messages locally before recreation if those messages are needed; the new volume does not recover them automatically. Do not regenerate credentials when reusing existing data.
+
+See the [volume inventory and upgrade precautions](docs/local-services.md#persistence-and-existing-installations) before running setup, update, or recreation against an existing installation.
+
 ## Stopping the Environment
 
 Stop containers while retaining data volumes:
@@ -255,6 +273,8 @@ docker compose down
 If you are using optional services, include their `-f` files with `down` or `down --volumes` to stop them and, when intended, delete their data.
 
 To remove all local service data permanently:
+
+**This is destructive and is not needed to install the template on another machine.**
 
 ```bash
 docker compose down --volumes
@@ -279,7 +299,9 @@ Update clean repositories under `repositorios/` on their currently checked-out b
 bash ./update-local.sh
 ```
 
-The script fetches remote updates and fast-forwards repositories with a configured upstream branch. It skips repositories with local changes, local-only commits, divergent history, detached HEADs, or missing upstream configuration.
+The script fetches remote updates and fast-forwards repositories with a configured upstream branch. It skips repositories with local changes, local-only commits, divergent history, detached HEADs, or missing upstream configuration. It then validates Compose and reconciles the shared services with this branch's configuration, waiting until they are ready. This also applies the current MinIO image and health check without deleting its volume.
+
+If you use optional services, repeat their flags when updating: `bash ./update-local.sh --with-mysql --with-postgres --with-redis`. Use `--skip-services` to update repositories without starting services. Unless services are skipped, the update needs the infrastructure `.env` created by `setup-local.sh`.
 
 On this branch, it first checks that PHP 8.3.6 is installed under `enviroment/phpenv/`. It does not change that version; application repositories still advance according to their upstream and must retain compatible PHP requirements.
 
@@ -366,7 +388,8 @@ Attach the application service to that network. It can then resolve the shared s
 | `bash ./setup-local.sh --with-mysql` | Also validate and start optional MySQL on the first run. |
 | `bash ./setup-local.sh --with-postgres --with-redis` | Start optional PostgreSQL and Redis alongside the default services. |
 | `bash ./setup-local.sh --repository name=<git-url>` | Clone a repository into `repositorios/name` and start shared services. |
-| `bash ./update-local.sh` | Safely update eligible repositories in `repositorios/`. |
+| `bash ./update-local.sh` | Update eligible repositories and reconcile shared services, waiting until they are ready. |
+| `bash ./update-local.sh --skip-services` | Update repositories without starting services. |
 | `bash ./update-local.sh --force` | Reset eligible repositories to their upstream branch, discarding local work. |
 | `docker compose up -d` | Start shared services. |
 | `docker compose down` | Stop shared services while preserving volumes. |
@@ -384,6 +407,7 @@ Attach the application service to that network. It can then resolve the shared s
 | Automatic provisioning is unavailable | Use Debian or Ubuntu, or install Git, Docker Engine, Docker Compose v2, `od`, and `tr` before running setup on another Linux distribution. |
 | A service cannot bind its port | Change the corresponding port variable in `.env`, then run `docker compose up -d`. |
 | Compose reports a missing environment variable | Run `bash ./setup-local.sh` to create `.env`, or restore the required local value without committing it. |
+| MinIO does not start or become healthy | Check `docker compose ps minio` and `docker compose logs minio`. Confirm the image is `cgr.dev/chainguard/minio:latest`; rerun `bash ./setup-local.sh` or `bash ./update-local.sh` to apply the current configuration without deleting `minio_data`. |
 | Mongo Express waits for MongoDB | Run `docker compose ps` and wait until MongoDB is healthy. Inspect `docker compose logs mongo` if it does not become healthy. |
 | MySQL refuses connections | Start with both Compose files, check health with `docker compose -f docker-compose.yml -f docker-compose.mysql.yml ps`, and verify the `.env` port is free. Do not change credentials without resetting the MySQL volume too. |
 | PostgreSQL or Redis refuses connections | Check that the corresponding Compose file was included, inspect health using the same `-f` files, and verify local ports are free. PostgreSQL's initial credentials do not change on an existing volume. |
